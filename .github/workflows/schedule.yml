@@ -16,10 +16,10 @@ jobs:
           - 11434:11434
         options: >-
           --name ollama_service
-          --health-cmd="ollama -v"
+          --health-cmd="curl -f http://localhost:11434/api/version || exit 1"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=10
 
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
@@ -48,21 +48,29 @@ jobs:
       - name: Wait for Ollama Service
         id: wait_ollama
         run: |
-          echo "Waiting up to 2 minutes for Ollama service health..."
-          for i in {1..24}; do
-            STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ollama_service || echo "unhealthy")
-            if echo "$STATUS" | grep -q healthy; then
-              echo "Ollama service is healthy!"
-              break
+          echo "Waiting up to 3 minutes for Ollama service to become healthy..."
+          for i in {1..36}; do
+            STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ollama_service 2>/dev/null || echo "unhealthy")
+            if [ "$STATUS" = "\"healthy\"" ]; then
+              echo "Ollama service is healthy."
+              exit 0
             else
-              echo "Still waiting for Ollama... ($i/24) Status: $STATUS"
+              echo "Still waiting for Ollama... ($i/36) Status: $STATUS"
               sleep 5
             fi
-            if [ $i -eq 24 ]; then
-              echo "Ollama service failed to become healthy. Aborting."
-              exit 1
-            fi
           done
+          echo "Ollama service did not become healthy within 3 minutes. Exiting."
+          exit 1
+
+      - name: Verify Ollama Service Connectivity
+        run: |
+          echo "Testing Ollama service endpoint..."
+          if curl -f http://localhost:11434/api/version; then
+            echo "Ollama service reachable."
+          else
+            echo "ERROR: Ollama service not reachable at http://localhost:11434/api/version"
+            exit 1
+          fi
 
       - name: Pull Mistral Model
         id: pull_model
