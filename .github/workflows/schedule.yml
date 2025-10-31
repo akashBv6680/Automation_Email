@@ -14,8 +14,10 @@ jobs:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
+        # Allow long model load; keep simple health cmd
         options: >-
           --name ollama_service
+          --env OLLAMA_LOAD_TIMEOUT=90m
           --health-cmd="ollama -v"
           --health-interval=10s
           --health-timeout=5s
@@ -45,38 +47,40 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Wait for Ollama Service
-        id: wait_ollama
+      # Quick server probe (root endpoint returns "Ollama is running")
+      - name: Probe Ollama root endpoint
         run: |
-          echo "Waiting up to 2 minutes for Ollama service health..."
-          for i in {1..24}; do
-            if docker inspect --format='{{json .State.Health.Status}}' ollama_service | grep -q healthy; then
-              echo "Ollama service is healthy!"
+          echo "Probing Ollama root until it answers..."
+          for i in {1..60}; do
+            if curl -fsS http://localhost:11434/ >/dev/null 2>&1; then
+              echo "Ollama responded at /"
               break
-            else
-              echo "Still waiting for Ollama... ($i/24)"
-              sleep 5
             fi
-            if [ $i -eq 24 ]; then
-              echo "Ollama service failed to become healthy. Aborting."
-              exit 1
-            fi
+            echo "Waiting for Ollama root... ($i/60)"
+            sleep 5
           done
+
+      # Optional warmup wait to give the server time before first model request
+      - name: Warmup wait before model ops
+        run: |
+          echo "Allowing extra warmup time for Ollama/model load..."
+          sleep 60
 
       - name: Pull Mistral Model
         id: pull_model
         run: |
-          echo "Waiting 5 seconds to ensure Ollama is fully ready..."
-          sleep 5
           echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
           docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }} || {
-            echo "Retrying model pull after 10 seconds..."
-            sleep 10
+            echo "Retrying model pull after 20 seconds..."
+            sleep 20
             docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
           }
 
       - name: Run Email Agent
         id: run_agent
+        env:
+          # Extend client-side timeout via env your script can read if needed
+          REQUEST_TIMEOUT_SECONDS: "600"
         run: |
           echo "Starting Email Automation..."
           python email_agent.py
