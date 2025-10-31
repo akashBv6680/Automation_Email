@@ -45,6 +45,11 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
+      - name: Dump Ollama service logs for diagnosis
+        run: |
+          echo "Ollama service container logs:"
+          docker logs ollama_service || echo "No logs found"
+
       - name: Wait for Ollama Service
         id: wait_ollama
         run: |
@@ -68,24 +73,4 @@ jobs:
           if curl -f http://localhost:11434/api/version; then
             echo "Ollama service reachable."
           else
-            echo "ERROR: Ollama service not reachable at http://localhost:11434/api/version"
-            exit 1
-          fi
-
-      - name: Pull Mistral Model
-        id: pull_model
-        run: |
-          echo "Waiting 5 seconds to ensure Ollama is fully ready..."
-          sleep 5
-          echo "Pulling model $OLLAMA_MODEL..."
-          docker exec ollama_service ollama pull $OLLAMA_MODEL || {
-            echo "Retrying model pull after 10 seconds..."
-            sleep 10
-            docker exec ollama_service ollama pull $OLLAMA_MODEL
-          }
-
-      - name: Run Email Agent
-        id: run_agent
-        run: |
-          echo "Starting Email Automation..."
-          python email_agent.py
+            echo "ERROR: Ollama service not reachable at http://localhost
