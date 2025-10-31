@@ -2,7 +2,6 @@ name: Email Automation Scheduler
 
 on:
   schedule:
-    # Run every 30 minutes to reduce overlap and load time
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
