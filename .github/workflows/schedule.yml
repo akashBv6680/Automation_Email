@@ -9,27 +9,13 @@ jobs:
   run-email-agent:
     runs-on: ubuntu-latest
 
-    services:
-      ollama_service:
-        image: ollama/ollama:latest
-        ports:
-          - 11434:11434
-        # Allow long model load; keep simple health cmd
-        options: >-
-          --name ollama_service
-          --env OLLAMA_LOAD_TIMEOUT=90m
-          --health-cmd="ollama -v"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
     env:
       EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
       EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       IMAP_SERVER: imap.gmail.com
       SMTP_SERVER: smtp.gmail.com
-      OLLAMA_URL: http://localhost:11434/api/generate
-      OLLAMA_MODEL: mistral:7b-instruct-v0.2-q4_0
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash
       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
       PYTHONUNBUFFERED: 1
 
@@ -45,42 +31,12 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install requests
-
-      # Quick server probe (root endpoint returns "Ollama is running")
-      - name: Probe Ollama root endpoint
-        run: |
-          echo "Probing Ollama root until it answers..."
-          for i in {1..60}; do
-            if curl -fsS http://localhost:11434/ >/dev/null 2>&1; then
-              echo "Ollama responded at /"
-              break
-            fi
-            echo "Waiting for Ollama root... ($i/60)"
-            sleep 5
-          done
-
-      # Optional warmup wait to give the server time before first model request
-      - name: Warmup wait before model ops
-        run: |
-          echo "Allowing extra warmup time for Ollama/model load..."
-          sleep 60
-
-      - name: Pull Mistral Model
-        id: pull_model
-        run: |
-          echo "Pulling model ${{ env.OLLAMA_MODEL }}..."
-          docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }} || {
-            echo "Retrying model pull after 20 seconds..."
-            sleep 20
-            docker exec ollama_service ollama pull ${{ env.OLLAMA_MODEL }}
-          }
+          pip install requests google-genai
 
       - name: Run Email Agent
-        id: run_agent
         env:
-          # Extend client-side timeout via env your script can read if needed
-          REQUEST_TIMEOUT_SECONDS: "600"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
         run: |
           echo "Starting Email Automation..."
           python email_agent.py
