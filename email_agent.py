@@ -8,7 +8,6 @@ import re
 import requests
 import time
 from email.message import EmailMessage
-
 # --- Configuration & Secrets (Loaded from GitHub Environment Variables) ---
 from google import genai
 from google.genai import types
