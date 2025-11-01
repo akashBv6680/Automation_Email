@@ -5,11 +5,11 @@ import email
 import ssl
 import json
 import re
-import requests
 import time
 from email.message import EmailMessage
 
 from google import genai  # pip install google-genai
+from google.genai import types  # typed configs
 
 # --- Configuration ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -31,8 +31,11 @@ else:
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
     print("STATUS: LANGCHAIN_API_KEY not found. LangSmith tracing is disabled.")
 
-# --- Knowledge Base & Instructions (use your existing long text) ---
-DATA_SCIENCE_KNOWLEDGE = """... your existing KB text ..."""
+# --- Knowledge Base & Instructions (paste your full KB text here) ---
+DATA_SCIENCE_KNOWLEDGE = """
+# Data Science Project & Service Knowledge Base
+... your full KB text ...
+"""
 
 AUTOMATION_CONDITION = (
     "Does the incoming email contain a technical question or an explicit project inquiry/pitch related to Data Science, "
@@ -40,9 +43,9 @@ AUTOMATION_CONDITION = (
 )
 
 AGENTIC_SYSTEM_INSTRUCTIONS = (
-    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. You MUST NOT impersonate anyone else.\n"
-    "1) CONDITION CHECK. 2) TRANSLATOR. 3) TONE ANALYZER.\n"
-    "CRITICAL FORMAT: Output ONLY a JSON object matching the schema. No extra text."
+    "You are a professional, Agentic AI system acting ONLY as Senior Data Scientist, Akash BV. "
+    "Your task: 1) CONDITION CHECK, 2) TRANSLATOR, 3) TONE ANALYZER.\n"
+    "CRITICAL FORMAT: Output ONLY a single JSON object that matches the schema. No extra text."
 )
 
 RESPONSE_SCHEMA_JSON = {
@@ -54,6 +57,7 @@ RESPONSE_SCHEMA_JSON = {
 }
 RESPONSE_SCHEMA_PROMPT = json.dumps(RESPONSE_SCHEMA_JSON, indent=2)
 
+
 def _send_smtp_email(to_email, subject, content):
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
         print("ERROR: Email credentials not available.")
@@ -64,6 +68,7 @@ def _send_smtp_email(to_email, subject, content):
         msg["From"] = EMAIL_ADDRESS
         msg["To"] = to_email
         msg.set_content(content)
+
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
@@ -72,6 +77,7 @@ def _send_smtp_email(to_email, subject, content):
     except Exception as e:
         print(f"ERROR: Failed to send email: {e}")
         return False
+
 
 def _fetch_latest_unread_email():
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
@@ -85,15 +91,18 @@ def _fetch_latest_unread_email():
         ids = data[0].split()
         if not ids:
             return None, None, None
+
         latest_id = ids[-1]
         mail.store(latest_id, '+FLAGS', '\\Seen')
         status, msg_data = mail.fetch(latest_id, "(RFC822)")
         raw_email = msg_data[0][1]
         email_message = email.message_from_bytes(raw_email)
+
         from_header = email_message.get("From", "")
         subject = email_message.get("Subject", "No Subject")
         from_match = re.search(r"<([^>]+)>", from_header)
         from_email = from_match.group(1) if from_match else from_header
+
         body = ""
         if email_message.is_multipart():
             for part in email_message.walk():
@@ -104,10 +113,12 @@ def _fetch_latest_unread_email():
                     break
         else:
             body = email_message.get_payload(decode=True).decode(errors="ignore")
+
         return from_email, subject, body
     except Exception as e:
         print(f"CRITICAL ERROR fetching email: {e}")
         return None, None, None
+
 
 def _run_ai_agent(email_data):
     if not GEMINI_API_KEY:
@@ -124,30 +135,34 @@ def _run_ai_agent(email_data):
         f"--- INCOMING EMAIL ---\nFROM: {email_data['from_email']}\nSUBJECT: {email_data['subject']}\nBODY:\n{email_data['body']}\n"
     )
 
-    # Gemini expects `contents` as text or list; simple text is fine.
+    generation_config = types.GenerateContentConfig(
+        temperature=0.3,
+        max_output_tokens=1024,
+        response_mime_type="text/plain",
+    )  # [web:65][web:66]
+
     response = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
-        safety_settings=None,  # optional
-        generation_config={"temperature": 0.3}
-    )
+        config=generation_config,
+    )  # [web:46][web:65]
 
     text = (getattr(response, "text", None) or "").strip()
     if not text:
         print("ERROR: Empty response from Gemini.")
-        return None
+        return None  # [web:65]
 
-    # Extract JSON object
     m = re.search(r'\{.*\}', text, re.DOTALL)
     if not m:
         print(f"ERROR: No JSON found in model response. Start: {text[:200]}")
-        return None
+        return None  # [web:65]
 
     try:
         return json.loads(m.group(0))
     except Exception as e:
         print(f"ERROR: Failed to parse JSON: {e}")
-        return None
+        return None  # [web:65]
+
 
 def main_agent_workflow():
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- STARTING AGENTIC AI RUN ---")
@@ -163,10 +178,14 @@ def main_agent_workflow():
         return
 
     def str_to_bool(v): return str(v).lower() == "true"
+
     is_technical = ai_output.get("is_technical", "False")
-    if isinstance(is_technical, str): is_technical = str_to_bool(is_technical)
+    if isinstance(is_technical, str):
+        is_technical = str_to_bool(is_technical)
+
     request_meeting = ai_output.get("request_meeting", "False")
-    if isinstance(request_meeting, str): request_meeting = str_to_bool(request_meeting)
+    if isinstance(request_meeting, str):
+        request_meeting = str_to_bool(request_meeting)
 
     SAFE = "Thank you for reaching out. I'm reviewing your inquiry and will send a detailed response shortly. Best regards,\nAkash BV"
     simple_reply = ai_output.get("simple_reply_draft", SAFE)
@@ -188,6 +207,7 @@ def main_agent_workflow():
     else:
         print(f"FAILURE: Could not send email to {from_email}")
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] --- AI RUN COMPLETE ---")
+
 
 if __name__ == "__main__":
     main_agent_workflow()
